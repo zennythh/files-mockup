@@ -1,0 +1,338 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "linux-arm64-openssl-3.0.x"]
+  output          = "../generated/prisma"
+  engineType      = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// User and Role models
+
+model User {
+  userId       Int      @id @default(autoincrement())
+  email        String   @unique
+  roleId       Int
+  firstName    String
+  lastName     String
+  passwordHash String
+  createdAt    DateTime @default(now())
+  status       String
+
+  role              Role             @relation(fields: [roleId], references: [roleId])
+  documentAccess    DocumentAccess[]
+  scanSessions      ScanSession[]
+  activityLogs      ActivityLog[]
+  categoriesCreated Category[]       @relation("CategoryCreatedBy")
+  categoriesUpdated Category[]       @relation("CategoryUpdatedBy")
+  tagsCreated       Tag[]            @relation("TagCreatedBy")
+  tagsUpdated       Tag[]            @relation("TagUpdatedBy")
+  documentsCreated  Document[]       @relation("DocumentCreatedBy")
+  documentsUpdated  Document[]       @relation("DocumentUpdatedBy")
+}
+
+model Role {
+  roleId      Int     @id @default(autoincrement())
+  roleName    String  @unique
+  description String?
+
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  permissionId   Int     @id @default(autoincrement())
+  permissionName String  @unique
+  description    String?
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       Int
+  permissionId Int
+
+  role       Role       @relation(fields: [roleId], references: [roleId])
+  permission Permission @relation(fields: [permissionId], references: [permissionId])
+
+  @@id([roleId, permissionId])
+}
+
+// Scanner and Scan models
+
+model Scanner {
+  scannerId       Int       @id @default(autoincrement())
+  scannerName     String
+  scannerSerial   String    @unique
+  scannerModel    String
+  location        String
+  status          String
+  lastConnectedAt DateTime?
+
+  scanSession  ScanSession[]
+  activityLogs ActivityLog[]
+}
+
+model ScanSession {
+  sessionId Int @id @default(autoincrement())
+
+  scannerId Int
+  userId    Int
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  status       String
+  errorMessage String?
+  retryCount   Int     @default(0)
+
+  scanner Scanner        @relation(fields: [scannerId], references: [scannerId])
+  user    User           @relation(fields: [userId], references: [userId])
+  pages   DocumentPage[]
+
+  @@index([scannerId])
+  @@index([userId])
+}
+
+model OCRResult {
+  ocrResultId Int @id @default(autoincrement())
+  documentId  Int
+
+  extractedText String?
+
+  status       String
+  errorMessage String?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  attemptNumber Int @default(1)
+
+  document Document @relation(fields: [documentId], references: [documentId])
+
+  @@index([documentId])
+}
+
+// Documents
+
+model Document {
+  documentId Int    @id @default(autoincrement())
+  title      String
+  fileName   String
+  storageUrl String
+
+  docTypeId Int
+
+  fileType  String
+  mimeType  String
+  fileSize  Int
+  pageCount Int    @default(1)
+
+  createdBy     Int
+  lastUpdatedBy Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  status    String
+  ocrStatus String
+
+  createdByUser User         @relation("DocumentCreatedBy", fields: [createdBy], references: [userId])
+  updatedByUser User         @relation("DocumentUpdatedBy", fields: [lastUpdatedBy], references: [userId])
+  documentType  DocumentType @relation(fields: [docTypeId], references: [docTypeId])
+
+  pages           DocumentPage[]
+  ocrResults      OCRResult[]
+  documentAccess  DocumentAccess[]
+  activityLogs    ActivityLog[]
+  qrCodes         QRCode[]
+  fileConversions FileConversion[]
+  metadata        DocumentMetadata[]
+  categories      DocumentCategory[]
+  tags            DocumentTag[]
+}
+
+model DocumentPage {
+  pageId        Int  @id @default(autoincrement())
+  documentId    Int
+  scanSessionId Int?
+
+  pageNumber Int
+
+  originalPath  String
+  processedPath String?
+
+  status String
+
+  document    Document     @relation(fields: [documentId], references: [documentId])
+  scanSession ScanSession? @relation(fields: [scanSessionId], references: [sessionId])
+
+  @@unique([documentId, pageNumber])
+}
+
+model DocumentAccess {
+  userId     Int
+  documentId Int
+  accessType String
+
+  user     User     @relation(fields: [userId], references: [userId])
+  document Document @relation(fields: [documentId], references: [documentId])
+
+  @@id([userId, documentId])
+}
+
+// QR Codes
+
+model QRCode {
+  qrCodeId      Int       @id @default(autoincrement())
+  qrValue       String    @unique
+  documentId    Int
+  generatedAt   DateTime  @default(now())
+  status        String
+  expiresAt     DateTime?
+  invalidatedAt DateTime?
+
+  document Document @relation(fields: [documentId], references: [documentId])
+
+  @@index([documentId])
+}
+
+// File Conversions
+
+model FileConversion {
+  conversionId Int @id @default(autoincrement())
+  documentId   Int
+
+  sourceFormat String
+  targetFormat String
+
+  status       String
+  outputPath   String?
+  errorMessage String?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  document Document @relation(fields: [documentId], references: [documentId])
+
+  @@index([documentId])
+}
+
+// Document Types
+
+model DocumentType {
+  docTypeId       Int      @id @default(autoincrement())
+  docTypeName     String   @unique
+  description     String?
+  createdAt       DateTime @default(now())
+  namingRule      String
+  retentionPeriod Int
+
+  documents      Document[]
+  metadataFields MetadataField[]
+}
+
+// Metadata
+
+model MetadataField {
+  fieldId    Int     @id @default(autoincrement())
+  docTypeId  Int
+  fieldName  String
+  fieldType  String
+  isRequired Boolean @default(false)
+
+  documentType DocumentType       @relation(fields: [docTypeId], references: [docTypeId])
+  metadata     DocumentMetadata[]
+
+  @@unique([docTypeId, fieldName])
+}
+
+model DocumentMetadata {
+  metadataId Int    @id @default(autoincrement())
+  documentId Int
+  fieldId    Int
+  fieldValue String
+
+  document Document      @relation(fields: [documentId], references: [documentId])
+  field    MetadataField @relation(fields: [fieldId], references: [fieldId])
+
+  @@unique([documentId, fieldId])
+}
+
+// Categories 
+
+model Category {
+  categoryId    Int       @id @default(autoincrement())
+  categoryName  String    @unique
+  description   String?
+  createdBy     Int
+  lastUpdatedBy Int?
+  createdAt     DateTime  @default(now())
+  lastUpdatedAt DateTime?
+
+  createdByUser User  @relation("CategoryCreatedBy", fields: [createdBy], references: [userId])
+  updatedByUser User? @relation("CategoryUpdatedBy", fields: [lastUpdatedBy], references: [userId])
+
+  documents DocumentCategory[]
+}
+
+model DocumentCategory {
+  documentId Int
+  categoryId Int
+
+  document Document @relation(fields: [documentId], references: [documentId])
+  category Category @relation(fields: [categoryId], references: [categoryId])
+
+  @@id([documentId, categoryId])
+}
+
+// Tags
+
+model Tag {
+  tagId         Int       @id @default(autoincrement())
+  tagName       String    @unique
+  description   String?
+  createdBy     Int
+  lastUpdatedBy Int?
+  createdAt     DateTime  @default(now())
+  lastUpdatedAt DateTime?
+
+  createdByUser User  @relation("TagCreatedBy", fields: [createdBy], references: [userId])
+  updatedByUser User? @relation("TagUpdatedBy", fields: [lastUpdatedBy], references: [userId])
+
+  documents DocumentTag[]
+}
+
+model DocumentTag {
+  documentId Int
+  tagId      Int
+
+  document Document @relation(fields: [documentId], references: [documentId])
+  tag      Tag      @relation(fields: [tagId], references: [tagId])
+
+  @@id([documentId, tagId])
+}
+
+// Activuty Logs
+
+model ActivityLog {
+  logId      Int      @id @default(autoincrement())
+  userId     Int?
+  documentId Int?
+  scannerId  Int?
+  action     String
+  result     String
+  details    String
+  timestamp  DateTime @default(now())
+
+  user     User?     @relation(fields: [userId], references: [userId])
+  document Document? @relation(fields: [documentId], references: [documentId])
+  scanner  Scanner?  @relation(fields: [scannerId], references: [scannerId])
+}
